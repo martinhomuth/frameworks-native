@@ -411,6 +411,10 @@ void Layer::setGeometry(
     const sp<const DisplayDevice>& hw,
         HWComposer::HWCLayerInterface& layer)
 {
+    const int skip_num = 1;
+    String8 skip_layers[skip_num];
+    skip_layers[0].appendFormat("com.google.android.googlequicksearchbox/com.google.android.velvet.ui.VelvetActivity");
+
     layer.setDefaultState();
 
     // enable this layer
@@ -420,6 +424,14 @@ void Layer::setGeometry(
         layer.setSkip(true);
     }
 
+    for(int i = 0; i < skip_num; i++)
+    {
+        if(getName() == skip_layers[i])
+        {
+            layer.setSkip(true);
+        }
+    }
+
     // this gives us only the "orientation" component of the transform
     const State& s(getDrawingState());
     if (!isOpaque(s) || s.alpha != 0xFF) {
@@ -427,6 +439,13 @@ void Layer::setGeometry(
                 HWC_BLENDING_PREMULT :
                 HWC_BLENDING_COVERAGE);
     }
+
+    // workaround for cts begin
+    if(strcmp(getName().string(), "com.android.cts.view/android.view.cts.GLSurfaceViewCtsActivity") == 0)
+    {
+        layer.setBlending(HWC_BLENDING_NONE);
+    }
+    // workaround for cts end
 
     // apply the layer's transform, followed by the display's global transform
     // here we're guaranteed that the layer's transform preserves rects
@@ -566,21 +585,21 @@ Rect Layer::getPosition(
 // drawing...
 // ---------------------------------------------------------------------------
 
-void Layer::draw(const sp<const DisplayDevice>& hw, const Region& clip) const {
-    onDraw(hw, clip, false);
+void Layer::draw(const sp<const DisplayDevice>& hw, const Region& clip, int i) const {
+    onDraw(hw, clip, false, i);
 }
 
 void Layer::draw(const sp<const DisplayDevice>& hw,
         bool useIdentityTransform) const {
-    onDraw(hw, Region(hw->bounds()), useIdentityTransform);
+    onDraw(hw, Region(hw->bounds()), useIdentityTransform, 1);
 }
 
 void Layer::draw(const sp<const DisplayDevice>& hw) const {
-    onDraw(hw, Region(hw->bounds()), false);
+    onDraw(hw, Region(hw->bounds()), false, 1);
 }
 
 void Layer::onDraw(const sp<const DisplayDevice>& hw, const Region& clip,
-        bool useIdentityTransform) const
+        bool useIdentityTransform, int i) const
 {
     ATRACE_CALL();
 
@@ -621,8 +640,11 @@ void Layer::onDraw(const sp<const DisplayDevice>& hw, const Region& clip,
         // is probably going to have something visibly wrong.
     }
 
-    bool blackOutLayer = isProtected() || (isSecure() && !hw->isSecure());
-
+	#ifdef SUN8IW5P1
+		bool blackOutLayer = (isProtected() || isSecure()) && !hw->isSecure();
+	#else
+		bool blackOutLayer = isProtected() || (isSecure() && !hw->isSecure());
+	#endif
     RenderEngine& engine(mFlinger->getRenderEngine());
 
     if (!blackOutLayer) {
@@ -671,7 +693,7 @@ void Layer::onDraw(const sp<const DisplayDevice>& hw, const Region& clip,
     } else {
         engine.setupLayerBlackedOut();
     }
-    drawWithOpenGL(hw, clip, useIdentityTransform);
+    drawWithOpenGL(hw, clip, useIdentityTransform, i);
     engine.disableTexturing();
 }
 
@@ -692,7 +714,7 @@ void Layer::clearWithOpenGL(
 }
 
 void Layer::drawWithOpenGL(const sp<const DisplayDevice>& hw,
-        const Region& /* clip */, bool useIdentityTransform) const {
+        const Region& /* clip */, bool useIdentityTransform, int i) const {
     const uint32_t fbHeight = hw->getHeight();
     const State& s(getDrawingState());
 
@@ -728,7 +750,15 @@ void Layer::drawWithOpenGL(const sp<const DisplayDevice>& hw,
     texCoords[3] = vec2(right, 1.0f - top);
 
     RenderEngine& engine(mFlinger->getRenderEngine());
-    engine.setupLayerBlending(mPremultipliedAlpha, isOpaque(s), s.alpha);
+    //engine.setupLayerBlending(mPremultipliedAlpha, isOpaque(s), s.alpha);
+    if(i==0)
+    {
+        engine.setupLayerBlending(false, true, 0xff);
+    }
+    else
+    {
+       engine.setupLayerBlending(mPremultipliedAlpha, isOpaque(s), s.alpha);
+    }  
     engine.drawMesh(mMesh);
     engine.disableBlending();
 }

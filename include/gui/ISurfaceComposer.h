@@ -158,6 +158,9 @@ public:
      * Requires the ACCESS_SURFACE_FLINGER permission.
      */
     virtual status_t getAnimationFrameStats(FrameStats* outStats) const = 0;
+
+	/* add by allwinner */
+	virtual int setDisplayParameter(int displayId, int cmd, int para0, int para1, int para2) = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -185,6 +188,7 @@ public:
         GET_ANIMATION_FRAME_STATS,
         SET_POWER_MODE,
         GET_DISPLAY_STATS,
+		SET_DISPLAY_PARAMETER,
     };
 
     virtual status_t onTransact(uint32_t code, const Parcel& data,

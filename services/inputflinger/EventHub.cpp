@@ -1269,10 +1269,15 @@ status_t EventHub::openDeviceLocked(const char *devicePath) {
         }
 
         // Disable kernel key repeat since we handle it ourselves
-        unsigned int repeatRate[] = {0,0};
-        if (ioctl(fd, EVIOCSREP, repeatRate)) {
-            ALOGW("Unable to disable kernel key repeat for %s: %s", devicePath, strerror(errno));
-        }
+		const char *filter = "sunxi_ir_recv";
+		if(strcmp(filter, device->identifier.name.string())!=0){
+			unsigned int repeatRate[] = {0,0};
+			if (ioctl(fd, EVIOCSREP, repeatRate)) {
+				ALOGW("Unable to disable kernel key repeat for %s: %s", devicePath, strerror(errno));
+			}
+		} else {
+			ALOGV("Do not disable kernel key repeat for '%s'\n", device->identifier.name.string());
+		}
     }
 
     // If the device isn't recognized as something we handle, don't monitor it.

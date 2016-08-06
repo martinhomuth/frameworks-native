@@ -47,6 +47,14 @@
 #include "../Layer.h"           // needed only for debugging
 #include "../SurfaceFlinger.h"
 
+#ifdef SUN8IW5P1
+#include <hardware/../../../aw/hwc/astar/gralloc_priv.h>
+#elif defined SUN8IW6P1
+#include <hardware/hal_public.h>
+#elif defined SUN9IW1P1
+#include <hardware/hal_public.h>
+#endif
+
 namespace android {
 
 #define MIN_HWC_HEADER_VERSION HWC_HEADER_VERSION
@@ -190,6 +198,8 @@ HWComposer::HWComposer(
         // we don't have VSYNC support, we need to fake it
         mVSyncThread = new VSyncThread(*this);
     }
+    mFullScreenVideo = false;
+    mMaxLayers = 0;
 }
 
 HWComposer::~HWComposer() {
@@ -632,6 +642,9 @@ status_t HWComposer::setFramebufferTarget(int32_t id,
 }
 
 status_t HWComposer::prepare() {
+    int width = 0;
+    int height = 0;
+    int numLayers = 0;
     for (size_t i=0 ; i<mNumDisplays ; i++) {
         DisplayData& disp(mDisplayData[i]);
         if (disp.framebufferTarget) {
@@ -664,6 +677,38 @@ status_t HWComposer::prepare() {
 
     int err = mHwc->prepare(mHwc, mNumDisplays, mLists);
     ALOGE_IF(err, "HWComposer: prepare failed (%s)", strerror(-err));
+
+#ifdef AW_BOOSTUP_ENABLE
+    bool bFullScreenVideo = false;
+    numLayers = mLists[HWC_DISPLAY_PRIMARY]->numHwLayers;
+    if(numLayers <= 3)
+    {
+        hwc_layer_1_t &l = mLists[HWC_DISPLAY_PRIMARY]->hwLayers[0];
+#ifdef SUN8IW5P1
+        private_handle_t *psNativeHandle = (private_handle_t *)l.handle;
+        if(psNativeHandle && (psNativeHandle->format == HAL_PIXEL_FORMAT_YCrCb_420_SP
+                    || psNativeHandle->format == HAL_PIXEL_FORMAT_YV12))
+#elif defined SUN8IW6P1 || defined SUN9IW1P1
+        IMG_native_handle_t *psNativeHandle = (IMG_native_handle_t *)l.handle;
+        if(psNativeHandle && (psNativeHandle->iFormat == HAL_PIXEL_FORMAT_YCrCb_420_SP
+					|| psNativeHandle->iFormat == HAL_PIXEL_FORMAT_YV12))
+#endif
+        {
+            bFullScreenVideo = true;
+            if(mMaxLayers == 0)
+                mMaxLayers = numLayers;
+        }
+    }
+    if((bFullScreenVideo != mFullScreenVideo) || (numLayers < mMaxLayers))
+    {
+        char value[4];
+        mFullScreenVideo = bFullScreenVideo;
+        mMaxLayers = numLayers;
+
+        snprintf(value, sizeof(value), "%d", mMaxLayers - 1);
+        property_set("sys.boost_up_perf.layers", value);
+    }
+#endif
 
     if (err == NO_ERROR) {
         // here we're just making sure that "skip" layers are set
@@ -1207,6 +1252,15 @@ void HWComposer::dump(String8& result) const {
         mHwc->dump(mHwc, buffer, SIZE);
         result.append(buffer);
     }
+}
+
+/* add by allwinner */
+int HWComposer::setDisplayParameter(int disp, int cmd, int para0, int para1, int para2) const {
+    if (mHwc) {
+        return mHwc->setParameter(mHwc, cmd, disp,  para0, para1);
+    }
+
+    return NO_INIT;
 }
 
 // ---------------------------------------------------------------------------

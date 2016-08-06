@@ -242,6 +242,25 @@ InputReader::InputReader(const sp<EventHubInterface>& eventHub,
 
     { // acquire lock
         AutoMutex _l(mLock);
+        mKeySynced = true;
+        mKeyInMouseMode =false;
+        mKeySynced  = true;
+        mDistance   = 10;
+        mKeyDeviceId = 0;
+        mVirtualMouseCreated = false;
+        mMouseDeviceId = 0x0fff0fff;
+        mTouchDeviceId = 0x0fff0ffe;
+        mVirtualTouchCreated = false;
+        for(int i= 0;i < MAX_MOUSE_SIZE;i++)
+        {
+            mRealMouseDeviceId[i] = -1;
+        }
+
+        mRealTouchDeviceId = -1;
+        mLeft = 0;
+        mRight = 0;
+        mTop = 0;
+        mBottom = 0;
 
         refreshConfigurationLocked(0);
         updateGlobalMetaStateLocked();
@@ -334,7 +353,11 @@ void InputReader::processEventsLocked(const RawEvent* rawEvents, size_t count) {
 #if DEBUG_RAW_EVENTS
             ALOGD("BatchSize: %d Count: %d", batchSize, count);
 #endif
-            processEventsForDeviceLocked(deviceId, rawEvent, batchSize);
+            convertEvent(rawEvent,batchSize);           
+            if(batchSize > 0) {
+                int32_t convertdeviceId = mConvertEventBuffer[0].deviceId;              
+                processEventsForDeviceLocked(convertdeviceId, mConvertEventBuffer, batchSize);          
+            }        
         } else {
             switch (rawEvent->type) {
             case EventHubInterface::DEVICE_ADDED:
@@ -356,7 +379,43 @@ void InputReader::processEventsLocked(const RawEvent* rawEvents, size_t count) {
     }
 }
 
+InputDevice* InputReader::createVirtualMouse(const InputDeviceIdentifier& identifier,uint32_t classes) 
+{    
+    InputDevice* device = new InputDevice(&mContext, 0, mMouseDeviceId, bumpGenerationLocked(),identifier,classes);        // External devices.    
+    if (classes & INPUT_DEVICE_CLASS_EXTERNAL) 
+    {       
+        device->setExternal(true);  
+    }    // Mouse-like devices.    
+
+    device->addMapper(new CursorInputMapper(device));    
+
+    return device;
+}
+
+void InputReader::addVirtualMouseDevice(const InputDeviceIdentifier& identifier,nsecs_t when,uint32_t classes){        
+    InputDevice* device = createVirtualMouse(identifier,classes);    
+    device->configure(when, &mConfig, 0);    
+    device->reset(when);
+    if (device->isIgnored()){
+        ALOGI("Device added: id=0x%x", mMouseDeviceId);    
+    } else {        
+        ALOGI("Device added: id=0x%x,sources=%08x", mMouseDeviceId,                
+                device->getSources());    
+    }    
+
+    ssize_t deviceIndex = mDevices.indexOfKey(mMouseDeviceId);    
+    if (deviceIndex < 0){        
+        mDevices.add(mMouseDeviceId, device);    
+    } else {        
+        ALOGW("Ignoring spurious device added event for deviceId %d.", mMouseDeviceId);        
+
+        delete device;        
+        return;    
+    }
+}
+
 void InputReader::addDeviceLocked(nsecs_t when, int32_t deviceId) {
+    ALOGD("addDeviceLocked deviceId = %d ", deviceId);
     ssize_t deviceIndex = mDevices.indexOfKey(deviceId);
     if (deviceIndex >= 0) {
         ALOGW("Ignoring spurious device added event for deviceId %d.", deviceId);
@@ -367,6 +426,25 @@ void InputReader::addDeviceLocked(nsecs_t when, int32_t deviceId) {
     uint32_t classes = mEventHub->getDeviceClasses(deviceId);
     int32_t controllerNumber = mEventHub->getDeviceControllerNumber(deviceId);
 
+    if(mVirtualMouseCreated == false){
+        addVirtualMouseDevice(identifier,when,INPUT_DEVICE_CLASS_CURSOR | INPUT_DEVICE_CLASS_EXTERNAL);
+
+        mVirtualMouseCreated = true;
+    }
+
+    if (classes & INPUT_DEVICE_CLASS_CURSOR){
+        for(int i= 0;i < MAX_MOUSE_SIZE;i++){
+            if(mRealMouseDeviceId[i] == -1){
+                mRealMouseDeviceId[i] = deviceId;
+                break;
+            }
+        }
+    }
+
+    if(mVirtualTouchCreated == false){
+        addVirtualTouchDevice(identifier,when,classes);
+        mVirtualTouchCreated = true;
+    }
     InputDevice* device = createDeviceLocked(deviceId, controllerNumber, identifier, classes);
     device->configure(when, &mConfig, 0);
     device->reset(when);
@@ -383,12 +461,65 @@ void InputReader::addDeviceLocked(nsecs_t when, int32_t deviceId) {
     bumpGenerationLocked();
 }
 
+void InputReader::keyEnterMouseMode(){    
+	ALOGD("Enter mouse mode!");
+    mKeyInMouseMode = true; 
+    ssize_t deviceIndex = mDevices.indexOfKey(mMouseDeviceId);    
+    if (deviceIndex < 0){        
+        ALOGW("Discarding event for unknown deviceId %d.", mMouseDeviceId);
+        return;    
+    }    
+    InputDevice* device = mDevices.valueAt(deviceIndex);    
+    if (device->isIgnored()){        
+        return;    
+    }   
+}
+
+void InputReader::keyExitMouseMode(){    
+	ALOGD("Exit mouse mode!");
+    mKeyInMouseMode = false;    
+    ssize_t deviceIndex = mDevices.indexOfKey(mMouseDeviceId);    
+    if (deviceIndex < 0){        
+        ALOGE("Discarding event for unknown deviceId %d.", mMouseDeviceId);        
+        return;    
+    }    
+    InputDevice* device = mDevices.valueAt(deviceIndex);    
+    if (device->isIgnored()){        
+        return;    
+    }   
+    device->fadePointer();
+}
+
+void InputReader::keySetMouseDistance(int distance){    
+    mDistance = distance;
+}
+
+void InputReader::keySetMouseMoveCode(int left,int right,int top,int bottom){    
+    mLeft   = left;    
+    mRight  = right;    
+    mTop    = top;    
+    mBottom = bottom;
+}
+
+void InputReader::keySetMouseBtnCode(int leftbtn,int midbtn,int rightbtn){    
+    mLeftBtn    = leftbtn;    
+    mRightBtn   = midbtn;    
+    mMidBtn     = midbtn;
+}
+
 void InputReader::removeDeviceLocked(nsecs_t when, int32_t deviceId) {
     InputDevice* device = NULL;
     ssize_t deviceIndex = mDevices.indexOfKey(deviceId);
     if (deviceIndex < 0) {
         ALOGW("Ignoring spurious device removed event for deviceId %d.", deviceId);
         return;
+    }
+
+    for(int i= 0;i < MAX_MOUSE_SIZE;i++) {
+        if(mRealMouseDeviceId[i] == deviceId) {
+            mRealMouseDeviceId[i] = -1;
+            break;
+        }
     }
 
     device = mDevices.valueAt(deviceIndex);
@@ -467,6 +598,140 @@ InputDevice* InputReader::createDeviceLocked(int32_t deviceId, int32_t controlle
     return device;
 }
 
+void InputReader::convertEvent(const RawEvent* rawEvents,size_t count) {
+    RawEvent *tmpRawEvent = mConvertEventBuffer;
+
+    bool isVirtualMouse = false;
+
+    for (const RawEvent* rawEvent = rawEvents; count--; rawEvent++,tmpRawEvent++){
+#if 0
+        ALOGD("Input event: device=%d type=0x%04x scancode=0x%04x "
+                "keycode=0x%04x value=0x%08x",
+                rawEvent->deviceId, rawEvent->type, rawEvent->code, rawEvent->code,
+                rawEvent->value);
+#endif
+        tmpRawEvent->deviceId   = rawEvent->deviceId;
+        tmpRawEvent->code       = rawEvent->code;
+        tmpRawEvent->type       = rawEvent->type;
+        tmpRawEvent->value      = rawEvent->value;
+        tmpRawEvent->when       = rawEvent->when;
+
+#if 0
+        for(int i= 0;i < MAX_MOUSE_SIZE;i++){
+            if(mRealMouseDeviceId[i] == tmpRawEvent->deviceId){
+                tmpRawEvent->deviceId  = mMouseDeviceId;
+            }
+        }
+#endif
+
+        if(mKeyInMouseMode){
+            if(true){//tmpRawEvent->deviceId == mKeyDeviceId
+                if(rawEvent->type == EV_KEY) {
+                    if(rawEvent->code == mLeft && rawEvent->value != 0) {
+                        tmpRawEvent->deviceId  = mMouseDeviceId;
+                        tmpRawEvent->type      = EV_REL;
+                        tmpRawEvent->code      = REL_X;
+                        tmpRawEvent->value     = -mDistance;
+
+                        mKeySynced             = false;
+                        isVirtualMouse = true;
+                    }
+                    else if(rawEvent->code == mRight && rawEvent->value != 0){
+                        tmpRawEvent->deviceId  = mMouseDeviceId;
+                        tmpRawEvent->type      = EV_REL;
+                        tmpRawEvent->code      = REL_X;
+                        tmpRawEvent->value     = mDistance;
+
+                        mKeySynced             = false;
+                        isVirtualMouse = true;
+                    }
+                    else if(rawEvent->code == mTop && rawEvent->value != 0){
+                        tmpRawEvent->deviceId   = mMouseDeviceId;
+                        tmpRawEvent->type      = EV_REL;
+                        tmpRawEvent->code      = REL_Y;
+                        tmpRawEvent->value     = -mDistance;
+
+                        mKeySynced             = false;
+                        isVirtualMouse = true;
+                    } else if(rawEvent->code == mBottom && rawEvent->value != 0){
+                        tmpRawEvent->deviceId  = mMouseDeviceId;
+                        tmpRawEvent->type      = EV_REL;
+                        tmpRawEvent->code  = REL_Y;
+                        tmpRawEvent->value     = mDistance;
+
+                        mKeySynced             = false;
+                        isVirtualMouse = true;
+                    } else if(rawEvent->code == mLeftBtn){
+                        tmpRawEvent->deviceId  = mMouseDeviceId;
+                        tmpRawEvent->type      = EV_KEY;
+                        tmpRawEvent->code  = BTN_LEFT;
+
+                        mKeySynced             = false;
+                        isVirtualMouse = true;
+                    } else if(rawEvent->code == mMidBtn){
+                        tmpRawEvent->deviceId  = mMouseDeviceId;
+                        tmpRawEvent->type      = EV_KEY;
+                        tmpRawEvent->code  = BTN_MIDDLE;
+
+                        mKeySynced             = false;
+                        isVirtualMouse = true;
+                    } else if(rawEvent->code == mRightBtn){
+                        tmpRawEvent->deviceId  = mMouseDeviceId;
+                        tmpRawEvent->type      = EV_KEY;
+                        tmpRawEvent->code  = BTN_RIGHT;
+
+                        mKeySynced             = false;
+                        isVirtualMouse = true;
+                    }
+                } else if(rawEvent->type == EV_SYN){
+                    if(mKeySynced == false){
+                        tmpRawEvent->deviceId  = mMouseDeviceId;
+
+                        mKeySynced = true;
+                        isVirtualMouse = true;
+                    }
+                }
+            }
+        }
+    }
+    if (isVirtualMouse) {
+        mConvertEventBuffer[0].deviceId = mMouseDeviceId;
+    }
+}
+
+InputDevice* InputReader::createVirtualTouch(const InputDeviceIdentifier& identifier,uint32_t classes) {
+    InputDevice* device = new InputDevice(&mContext, 0, mMouseDeviceId, bumpGenerationLocked(),identifier,classes);
+
+    // Mouse-like devices.
+    device->addMapper(new MultiTouchInputMapper(device));
+
+    return device;
+}
+
+void InputReader::addVirtualTouchDevice(const InputDeviceIdentifier& identifier,nsecs_t when,uint32_t classes){
+    InputDevice* device = createVirtualTouch(identifier,classes);
+    device->configure(when, &mConfig, 0);
+    device->reset(when);
+
+    if (device->isIgnored()) {
+        ALOGV("Device added: id=0x%x", mTouchDeviceId);
+    }else{
+        ALOGV("Device added: id=0x%x,sources=%08x", mTouchDeviceId,
+                device->getSources());
+    }
+
+    ssize_t deviceIndex = mDevices.indexOfKey(mTouchDeviceId);
+    if (deviceIndex < 0) {
+
+        ALOGV("Device added success: id=0x%x", mTouchDeviceId);
+        mDevices.add(mTouchDeviceId, device);
+    } else {
+        ALOGV("Ignoring spurious device added event for deviceId %d.", mTouchDeviceId);
+        delete device;
+        return;
+    }
+}
+
 void InputReader::processEventsForDeviceLocked(int32_t deviceId,
         const RawEvent* rawEvents, size_t count) {
     ssize_t deviceIndex = mDevices.indexOfKey(deviceId);
@@ -477,7 +742,7 @@ void InputReader::processEventsForDeviceLocked(int32_t deviceId,
 
     InputDevice* device = mDevices.valueAt(deviceIndex);
     if (device->isIgnored()) {
-        //ALOGD("Discarding event for ignored deviceId %d.", deviceId);
+        ALOGD("Discarding event for ignored deviceId %d.", deviceId);
         return;
     }
 
@@ -992,6 +1257,13 @@ void InputDevice::process(const RawEvent* rawEvents, size_t count) {
         } else {
             for (size_t i = 0; i < numMappers; i++) {
                 InputMapper* mapper = mMappers[i];
+                /*
+                String8 mapper_info;
+                //char info[500];
+                mapper->dump(mapper_info);
+                //strcpy(info, mapper_info.string());
+                ALOGI("mapper%d, %s", i, mapper_info.string());
+                */
                 mapper->process(rawEvent);
             }
         }
@@ -1171,7 +1443,7 @@ uint32_t CursorButtonAccumulator::getButtonState() const {
         result |= AMOTION_EVENT_BUTTON_PRIMARY;
     }
     if (mBtnRight) {
-        result |= AMOTION_EVENT_BUTTON_SECONDARY;
+        result |= AMOTION_EVENT_BUTTON_BACK;
     }
     if (mBtnMiddle) {
         result |= AMOTION_EVENT_BUTTON_TERTIARY;
@@ -1988,6 +2260,11 @@ KeyboardInputMapper::KeyboardInputMapper(InputDevice* device,
         uint32_t source, int32_t keyboardType) :
         InputMapper(device), mSource(source),
         mKeyboardType(keyboardType) {
+        mIsRepeatMode = true;
+        for(int i= 0;i < MAX_KEYDOWNNUM;i++){
+            mCurrentDown[i]  = false;
+            mCurrentScanCode[i] = 0;
+        }
 }
 
 KeyboardInputMapper::~KeyboardInputMapper() {
@@ -2077,6 +2354,95 @@ void KeyboardInputMapper::reset(nsecs_t when) {
 void KeyboardInputMapper::process(const RawEvent* rawEvent) {
     switch (rawEvent->type) {
     case EV_KEY: {
+        bool   find = false;
+        bool   down = false;
+        bool   currentindex = 0;
+
+        if(mIsRepeatMode)
+        {
+            if(rawEvent->value != 0)
+            {
+                for(int i = 0;i < MAX_KEYDOWNNUM;i++)
+                {
+                    if(mCurrentDown[i] == true)
+                    {
+                        down = true;
+                    }
+                }
+
+                if(down == false)
+                {
+                    for(int i = 0;i < MAX_KEYDOWNNUM;i++)
+                    {
+                        if(mCurrentDown[i] == false)
+                        {
+                            currentindex = i;
+
+                            break ;
+                        }
+                    }
+
+                    mCurrentDown[currentindex] = true;
+                    mCurrentScanCode[currentindex] = rawEvent->code;
+                    goto processCurrentEvent;
+                }
+                else
+                {
+                    for(int i = 0;i < MAX_KEYDOWNNUM;i++)
+                    {
+                        if(mCurrentScanCode[i] == rawEvent->code)
+                        {
+                            find = true;
+                        }
+                    }
+
+                    if(find == false)
+                    {
+                        for(int i = 0;i < MAX_KEYDOWNNUM;i++)
+                        {
+                            if(mCurrentDown[i] == false)
+                            {
+                                currentindex = i;
+
+                                break;
+                            }
+                        }
+
+                        mCurrentDown[currentindex] = true;
+                        mCurrentScanCode[currentindex] = rawEvent->code;
+                        goto processCurrentEvent;
+                    }
+                }
+            }
+            else
+            {
+                for(int i = 0;i < MAX_KEYDOWNNUM;i++)
+                {
+                    if(mCurrentScanCode[i] == rawEvent->code)
+                    {
+                        currentindex = i;
+                        find = true;
+
+                        break;
+                    }
+                }
+
+                if(find == true)
+                {
+                    mCurrentDown[currentindex] = false;
+                    mCurrentScanCode[currentindex] = 0;
+
+                    goto processCurrentEvent;
+                }
+            }
+        }
+        else
+        {
+            goto processCurrentEvent;
+        }
+
+        return ;
+processCurrentEvent:
         int32_t scanCode = rawEvent->code;
         int32_t usageCode = mCurrentHidUsage;
         mCurrentHidUsage = 0;
@@ -2422,6 +2788,11 @@ void CursorInputMapper::reset(nsecs_t when) {
 }
 
 void CursorInputMapper::process(const RawEvent* rawEvent) {
+#if DEBUG_RAW_EVENTS
+        ALOGD("Cursor event: device=%d type=0x%04x code=0x%04x value=0x%08x when=%lld",
+                rawEvent->deviceId, rawEvent->type, rawEvent->code, rawEvent->value,
+                rawEvent->when);
+#endif
     mCursorButtonAccumulator.process(rawEvent);
     mCursorMotionAccumulator.process(rawEvent);
     mCursorScrollAccumulator.process(rawEvent);
@@ -6086,6 +6457,10 @@ void MultiTouchInputMapper::syncTouch(nsecs_t when, bool* outHavePointerIds) {
             continue;
         }
 
+		if ((inSlot->getX() == 0) && (inSlot->getY() == 0)) {
+			continue;
+		}
+
         if (outCount >= MAX_POINTERS) {
 #if DEBUG_POINTERS
             ALOGD("MultiTouch device %s emitted more than maximum of %d pointers; "
@@ -6119,7 +6494,7 @@ void MultiTouchInputMapper::syncTouch(nsecs_t when, bool* outHavePointerIds) {
         bool isHovering = mTouchButtonAccumulator.getToolType() != AMOTION_EVENT_TOOL_TYPE_MOUSE
                 && (mTouchButtonAccumulator.isHovering()
                         || (mRawPointerAxes.pressure.valid && inSlot->getPressure() <= 0));
-        outPointer.isHovering = isHovering;
+        outPointer.isHovering = false;
 
         // Assign pointer id using tracking id if available.
         if (*outHavePointerIds) {
@@ -6145,7 +6520,7 @@ void MultiTouchInputMapper::syncTouch(nsecs_t when, bool* outHavePointerIds) {
             } else {
                 outPointer.id = id;
                 mCurrentRawPointerData.idToIndex[id] = outCount;
-                mCurrentRawPointerData.markIdBit(id, isHovering);
+                mCurrentRawPointerData.markIdBit(id, outPointer.isHovering);
                 newPointerIdBits.markBit(id);
             }
         }

@@ -587,7 +587,7 @@ void SensorService::recordLastValueLocked(
             last = event;
         }
     }
-    if (last) {
+    if (last && last->sensor <= 25) {
         mLastEventSeen.editValueFor(last->sensor) = *last;
     }
 }

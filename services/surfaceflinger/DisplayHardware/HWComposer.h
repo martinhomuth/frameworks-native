@@ -300,6 +300,8 @@ public:
     // for debugging ----------------------------------------------------------
     void dump(String8& out) const;
 
+	int setDisplayParameter(int disp, int cmd, int para0, int para1, int para2) const;
+
 private:
     void loadHwcModule();
     int loadFbHalModule();
@@ -368,6 +370,10 @@ private:
 
     // thread-safe
     mutable Mutex mEventControlLock;
+
+    // others
+    bool mFullScreenVideo;
+    int mMaxLayers;
 };
 
 // ---------------------------------------------------------------------------

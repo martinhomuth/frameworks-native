@@ -302,7 +302,29 @@ enum {
     AKEYCODE_TV_CONTENTS_MENU = 256,
     AKEYCODE_TV_MEDIA_CONTEXT_MENU = 257,
     AKEYCODE_TV_TIMER_PROGRAMMING = 258,
-    AKEYCODE_HELP            = 259
+    AKEYCODE_HELP            = 259,
+    // add for karaok by linjunqian
+    AKEYCODE_MIC_VOLUME_UP   = 370,
+    AKEYCODE_MIC_VOLUME_DOWN = 371,
+    AKEYCODE_KOUT_VOLUME_UP  = 372,
+    AKEYCODE_KOUT_VOLUME_DOWN = 373,
+    /* add by Gary. start {{----------------------------------- */
+    /* 2011-10-27 */
+    /* add some new keys for TVD */
+    AKEYCODE_TV_SYSTEM       = 10000,
+    AKEYCODE_GOTO            = 10001,
+    AKEYCODE_SUBTITLE        = 10002,
+    AKEYCODE_AUDIO           = 10003,
+    AKEYCODE_ZOOM            = 10004,
+    AKEYCODE_FAVOURITE       = 10006,
+    AKEYCODE_LOOP            = 10007,
+    AKEYCODE_EXPAND          = 10008,
+    AKEYCODE_MOUSE           = 10009,
+    AKEYCODE_MOVIE           = 10010,
+    AKEYCODE_APPS            = 10011,
+    AKEYCODE_BROWSER         = 10012,
+    AKEYCODE_SCREENSHOT      = 10013,
+    /* add by Gary. end   -----------------------------------}} */
 
     // NOTE: If you add a new keycode here you must also add it to several other files.
     //       Refer to frameworks/base/core/java/android/view/KeyEvent.java for the full list.

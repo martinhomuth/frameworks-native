@@ -369,6 +369,11 @@ public:
     virtual void vibrate(int32_t deviceId, const nsecs_t* pattern, size_t patternSize,
             ssize_t repeat, int32_t token) = 0;
     virtual void cancelVibrate(int32_t deviceId, int32_t token) = 0;
+	virtual void keyEnterMouseMode() = 0;
+	virtual void keyExitMouseMode() = 0;
+	virtual void keySetMouseDistance(int distance) = 0;
+	virtual void keySetMouseMoveCode(int left,int right,int top,int bottom) = 0;
+	virtual void keySetMouseBtnCode(int leftbtn,int midbtn,int rightbtn) = 0;
 };
 
 
@@ -438,6 +443,11 @@ public:
     virtual void vibrate(int32_t deviceId, const nsecs_t* pattern, size_t patternSize,
             ssize_t repeat, int32_t token);
     virtual void cancelVibrate(int32_t deviceId, int32_t token);
+	virtual void keyEnterMouseMode();		
+	virtual void keyExitMouseMode();		
+	virtual void keySetMouseDistance(int distance);		
+	virtual void keySetMouseMoveCode(int left,int right,int top,int bottom);		
+	virtual void keySetMouseBtnCode(int leftbtn,int midbtn,int rightbtn);
 
 protected:
     // These members are protected so they can be instrumented by test cases.
@@ -479,6 +489,7 @@ private:
     // The event queue.
     static const int EVENT_BUFFER_SIZE = 256;
     RawEvent mEventBuffer[EVENT_BUFFER_SIZE];
+	RawEvent mConvertEventBuffer[EVENT_BUFFER_SIZE];
 
     KeyedVector<int32_t, InputDevice*> mDevices;
 
@@ -488,11 +499,29 @@ private:
     void addDeviceLocked(nsecs_t when, int32_t deviceId);
     void removeDeviceLocked(nsecs_t when, int32_t deviceId);
     void processEventsForDeviceLocked(int32_t deviceId, const RawEvent* rawEvents, size_t count);
+	void convertEvent(const RawEvent* rawEvents,size_t count);
     void timeoutExpiredLocked(nsecs_t when);
 
     void handleConfigurationChangedLocked(nsecs_t when);
+	InputDevice* createVirtualMouse(const InputDeviceIdentifier& identifier,uint32_t classes);    
+	void addVirtualMouseDevice(const InputDeviceIdentifier& identifier,nsecs_t when,uint32_t classes); 	
+	InputDevice* createVirtualTouch(const InputDeviceIdentifier& identifier,uint32_t classes);    
+	void addVirtualTouchDevice(const InputDeviceIdentifier& identifier,nsecs_t when,uint32_t classes); 
 
     int32_t mGlobalMetaState;
+	bool        mKeyInMouseMode;    	
+	bool        mKeySynced;			
+	bool		mVirtualTouchCreated;    	
+	bool        mVirtualMouseCreated;    	
+	int32_t     mDistance;    	
+	int         mKeyDeviceId;    	
+	int         mMouseDeviceId;  	
+	static const int MAX_MOUSE_SIZE = 10;	
+	int         mRealMouseDeviceId[MAX_MOUSE_SIZE];		
+	int 		mTouchDeviceId;			
+	int 		mRealTouchDeviceId;    	
+	int         mLeft,mRight,mTop,mBottom;    	
+	int         mLeftBtn,mRightBtn,mMidBtn;
     void updateGlobalMetaStateLocked();
     int32_t getGlobalMetaStateLocked();
 
@@ -1072,7 +1101,10 @@ private:
     Vector<KeyDown> mKeyDowns; // keys that are down
     int32_t mMetaState;
     nsecs_t mDownTime; // time of most recent key down
-
+	static const int MAX_KEYDOWNNUM = 10;
+	bool    mIsRepeatMode;
+	bool    mCurrentDown[MAX_KEYDOWNNUM];
+	int32_t mCurrentScanCode[MAX_KEYDOWNNUM];
     int32_t mCurrentHidUsage; // most recent HID usage seen this packet, or 0 if none
 
     struct LedState {

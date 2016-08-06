@@ -163,6 +163,9 @@ public:
             const Rect& layerStackRect,
             const Rect& displayRect);
 
+	/* add by allwinner */
+	static int setDisplayParameter(int displayId, int cmd, int para0, int para1, int para2);
+
 private:
     virtual void onFirstRef();
     Composer& getComposer();
