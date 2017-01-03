@@ -1260,6 +1260,15 @@ void HWComposer::dump(String8& result) const {
     }
 }
 
+/* add by allwinner */
+int HWComposer::setDisplayParameter(int disp, int cmd, int para0, int para1, int para2) const {
+    if (mHwc) {
+        para2 = 0;
+        return mHwc->setParameter(mHwc, cmd, disp,  para0, para1);
+    }
+    return NO_INIT;
+}
+
 // ---------------------------------------------------------------------------
 
 HWComposer::VSyncThread::VSyncThread(HWComposer& hwc)

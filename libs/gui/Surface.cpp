@@ -237,7 +237,12 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
         return result;
     }
 
-    Mutex::Autolock lock(mMutex);
+    //Mutex::Autolock lock(mMutex);
+   if(TIMED_OUT== mMutex.timedLock(500000000)) {
+	ALOGE("surface  query lock failed for timeout !!!");
+	return TIMED_OUT;
+	}
+
 
     sp<GraphicBuffer>& gbuf(mSlots[buf].buffer);
 
@@ -253,6 +258,7 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
         if (result != NO_ERROR) {
             ALOGE("dequeueBuffer: IGraphicBufferProducer::requestBuffer failed: %d", result);
             mGraphicBufferProducer->cancelBuffer(buf, fence);
+	   mMutex.unlock();
             return result;
         }
     }
@@ -270,6 +276,7 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
     }
 
     *buffer = gbuf.get();
+    mMutex.unlock();
     return OK;
 }
 

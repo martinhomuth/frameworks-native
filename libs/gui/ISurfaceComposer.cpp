@@ -282,6 +282,20 @@ public:
         reply.read(*outStats);
         return reply.readInt32();
     }
+
+    /* add by allwinner */
+    virtual int setDisplayParameter(int displayId, int cmd, int para0, int para1, int para2)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(ISurfaceComposer::getInterfaceDescriptor());
+        data.writeInt32(displayId);
+        data.writeInt32(cmd);
+        data.writeInt32(para0);
+        data.writeInt32(para1);
+        data.writeInt32(para2);
+        remote()->transact(BnSurfaceComposer::SET_DISPLAY_PARAMETER, data, &reply);
+        return reply.readInt32();
+    }
 };
 
 // Out-of-line virtual method definition to trigger vtable emission in this
@@ -465,6 +479,17 @@ status_t BnSurfaceComposer::onTransact(
             sp<IBinder> display = data.readStrongBinder();
             int32_t mode = data.readInt32();
             setPowerMode(display, mode);
+            return NO_ERROR;
+        }
+        case SET_DISPLAY_PARAMETER: {
+            CHECK_INTERFACE(ISurfaceComposer, data, reply);
+            int displayId = data.readInt32();
+            int cmd = data.readInt32();
+            int para0 = data.readInt32();
+            int para1 = data.readInt32();
+            int para2 = data.readInt32();
+            int result = setDisplayParameter(displayId, cmd, para0, para1, para2);
+            reply->writeInt32(result);
             return NO_ERROR;
         }
         default: {

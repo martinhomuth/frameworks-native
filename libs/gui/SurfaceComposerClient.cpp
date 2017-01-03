@@ -681,6 +681,14 @@ status_t SurfaceComposerClient::getAnimationFrameStats(FrameStats* outStats) {
     return ComposerService::getComposerService()->getAnimationFrameStats(outStats);
 }
 
+/* add by allwinner */
+int SurfaceComposerClient::setDisplayParameter(
+        int displayId, int cmd, int para0, int para1, int para2)
+{
+    return ComposerService::getComposerService()->setDisplayParameter(displayId,
+            cmd, para0, para1, para2);
+}
+
 // ----------------------------------------------------------------------------
 
 status_t ScreenshotClient::capture(
